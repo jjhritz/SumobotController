@@ -15,16 +15,18 @@ Email: john-j-hritz@sbcglobal.net
 # minime 'main.py'
 # ESP8266 to Arduino Bot remote test
 
-print('minime NUBcore 20180912 16:27')
-
 import uos, machine
 from machine import Pin, UART
-from time import sleep_ms
+from utime import sleep_ms
 import socket
+import ussl
+import slimDNS.slimDNS as mdns
+
+print('minime NUBcore 20180912 16:27')
 
 BOT_MODE = False                                    # Set true if the ESP8266 is controlling a bot.
 commandString = b'cmd='                             # String that precedes a command in the HTTP request
-addr = socket.getaddrinfo('0.0.0.0', 80)[0][-1]     # requests the IP address of the ESP 8266
+addr = socket.getaddrinfo('0.0.0.0', 443)[0][-1]    # requests the IP address of the ESP 8266
 print('listening on', addr)
 
 s = socket.socket()                                 # TCP Socket used to handle HTTP requests
@@ -32,14 +34,18 @@ s = socket.socket()                                 # TCP Socket used to handle 
 # Bind the socket to an IP address and TCP port 80
 s.bind(addr)
 
+# wrap the socket in a ussl instance to provide TLS/SSL
+sec_s = ussl.wrap_socket(s, True, "server.key", "server.crt", ussl.CERT_OPTIONAL, None)
+
+
 # Start listening on the port
-s.listen(1)
+sec_s.listen(1)
 
 
 led4 = Pin(4, Pin.OUT)
 led5 = Pin(5, Pin.OUT)
 
-button0 = Pin(0, Pin.IN) # has hw PU
+button0 = Pin(0, Pin.IN)    # has hw PU
 button2 = Pin(2, Pin.IN, Pin.PULL_UP)
 
 # blink, blink, blink...
@@ -68,7 +74,6 @@ sleep_ms(20)
 led5.value(0)
 
 
-
 def callback(p):
     """
     Callback function for Interrupt tied to pressing Button 2.
@@ -86,9 +91,9 @@ def callback(p):
     print("BOT MODE 9600bps")
     sleep_ms(1000)
     led4.value(0)
-    uos.dupterm(None, 1) # kill REPL UART
+    uos.dupterm(None, 1)    # kill REPL UART
     sleep_ms(1000)
-    uart = UART(0, 9600) # create bot UART
+    uart = UART(0, 9600)    # create bot UART
     uart.init(9600, bits=8, parity=None, stop=1)
     led4.value(1)
 
@@ -153,7 +158,7 @@ def soc_request():
     """
     while True:
         # accept the incoming request
-        cl, clientaddr = s.accept()
+        cl, clientaddr = sec_s.accept()
         print('client connected from', clientaddr)
 
         # Write the HTTP request into a file so we can access it

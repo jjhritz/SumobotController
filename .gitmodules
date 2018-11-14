@@ -1,0 +1,3 @@
+[submodule "slimDNS"]
+	path = slimDNS
+	url = https://github.com/nickovs/slimDNS
