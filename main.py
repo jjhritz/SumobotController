@@ -20,14 +20,14 @@ print('minime NUBcore 20180912 16:27')
 import uos, machine
 from machine import Pin, UART
 from time import sleep_ms
-import socket
+import usocket
 
 BOT_MODE = False                                    # Set true if the ESP8266 is controlling a bot.
 commandString = b'cmd='                             # String that precedes a command in the HTTP request
-addr = socket.getaddrinfo('0.0.0.0', 80)[0][-1]     # requests the IP address of the ESP 8266
+addr = usocket.getaddrinfo('0.0.0.0', 80)[0][-1]     # requests the IP address of the ESP 8266
 print('listening on', addr)
 
-s = socket.socket()                                 # TCP Socket used to handle HTTP requests
+s = usocket.socket()                                 # TCP Socket used to handle HTTP requests
 
 # Bind the socket to an IP address and TCP port 80
 s.bind(addr)
@@ -105,43 +105,85 @@ def send_command(command):
     uart.write(command)
 
 
-def extract_request(request_file):
+def extract_request(cl_file):
     """
-    Extracts the line containing the GET request from the Raspberry Pi from the request file.
-    :param request_file: The file containing the complete HTTP request
+    Extracts the line containing the HTTP request from the Raspberry Pi from the request file.
+    :param cl_file: The file descriptor of the socket the request is coming in on
     :return: The line containing the HTTP GET request.
     """
     # String of the HTTP request.  Should be the first line of the file.
-    request = request_file.readline()
+    request = cl_file.readline()
     print(request)
 
     return request
 
 
-def extract_command(request_line):
+def extract_GET_command(request_line):
     """
     Extracts the command from the HTTP GET request line.
     :param request_line: The HTTP GET request line.
     :return: The command to forward to the Arduino.
     """
-    # Check if this is the GET request and we've received the command string
-    if b'GET' in request_line and commandString in request_line:
 
-        """
-        Find where the command string and HTTP stuff we don't care about start.
-        The command will be between those two.
-        """
-        cmd_index = request_line.find(commandString)
-        http_index = request_line.find(b' HTTP')
-        print("cmd_index: " + str(cmd_index))
-        print("http_index: " + str(http_index))
+    """
+    Find where the command string and HTTP stuff we don't care about start.
+    The command will be between those two.
+    """
+    cmd_index = request_line.find(commandString)
+    http_index = request_line.find(b' HTTP')
+    print("cmd_index: " + str(cmd_index))
+    print("http_index: " + str(http_index))
 
-        # All hail Slices. The command sits between the end of the command string and the start of the HTTP junk.
-        command = request_line[(cmd_index + len(commandString)):http_index]
+    # All hail Slices. The command sits between the end of the command string and the start of the HTTP junk.
+    command = request_line[(cmd_index + len(commandString)):http_index]
+    print(command)
+
+    return command
+
+
+def extract_POST_command(cl_file):
+    """
+    Extracts the command from a HTTP POST request form.
+    Only supports application/x-www-form-urlencoded content type.
+    :param cl_file: The file descriptor of the socket the request is coming in on.
+    :return: The command text, including prepended command string.
+    """
+    command = None
+
+    """    
+    while True:
+        line = cl_file.readline()
+        if not line:
+            break
+        else:
+            print(line)
+    """
+
+    """    
+    # Read in the whole file, then get the last line
+    # For larger files, a more memory-efficient method should be adopted
+    # However, these requests are very small
+    request_line = cl_file.readlines()[-1:]
+    print(request_line)
+    """
+
+
+    while True:
+        request_line = cl_file.readline()
+        print(request_line)
+        if commandString in request_line:
+            break
+        elif not request_line:
+            return
+
+    # Get the index of the command string
+    cmd_index = request_line.find(commandString)
+    print(cmd_index)
+
+    # If the command string was found, strip it to get the command
+    if cmd_index > -1:
+        command = request_line[(cmd_index + len(commandString)):]
         print(command)
-
-    else:
-        print("Not a valid command line.  Sorry.")
 
     return command
 
@@ -158,15 +200,22 @@ def soc_request():
 
         # Write the HTTP request into a file so we can access it
         cl_file = cl.makefile('rwb', 0)
-        # Extract the HTTP GET request line from the message
+        # Extract the HTTP request line from the message
         request_line = extract_request(cl_file)
-        # Extract the command from the HTTP GET request line
-        command = extract_command(request_line)
+
+        if b'GET' in request_line and commandString in request_line:
+            # Extract the command from the HTTP GET request line
+            command = extract_GET_command(request_line)
+        elif b'POST' in request_line:
+            # extract the command from the POST request body
+            cl.send(b'HTTP/1.1 200 OK\r\n')
+            command = extract_POST_command(cl_file)
+
         # Send the command to the Arduino
         send_command(command)
 
         # Tell the client something so it will go away
-        cl.send(b"OK")
+        cl.send(b'OK')
 
         # Close the file and socket to save memory
         cl_file.close()
