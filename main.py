@@ -20,14 +20,17 @@ print('minime NUBcore 20180912 16:27')
 import uos, machine
 from machine import Pin, UART
 from time import sleep_ms
-import usocket
+try:
+    import usocket as _socket
+except:
+    import _socket
 
 BOT_MODE = False                                    # Set true if the ESP8266 is controlling a bot.
 commandString = b'cmd='                             # String that precedes a command in the HTTP request
-addr = usocket.getaddrinfo('0.0.0.0', 80)[0][-1]     # requests the IP address of the ESP 8266
+addr = _socket.getaddrinfo('0.0.0.0', 80)[0][-1]     # requests the IP address of the ESP 8266
 print('listening on', addr)
 
-s = usocket.socket()                                 # TCP Socket used to handle HTTP requests
+s = _socket.socket()                                 # TCP Socket used to handle HTTP requests
 
 # Bind the socket to an IP address and TCP port 80
 s.bind(addr)
@@ -94,6 +97,11 @@ def callback(p):
 
 
 button2.irq(trigger=Pin.IRQ_FALLING, handler=callback)
+
+
+def err(socket, code, message):
+    socket.write("HTTP/1.1 "+code+" "+message+"\r\n\r\n")
+    socket.write("<h1>"+message+"</h1>")
 
 
 def send_command(command):
@@ -188,6 +196,41 @@ def extract_POST_command(cl_file):
     return command
 
 
+def handle(socket):
+    """
+    Alternative socket handler from:
+    https://lab.whitequark.org/notes/2016-10-20/controlling-a-gpio-through-an-esp8266-based-web-server/
+    :param socket:
+    :return:
+    """
+    (method, url, version) = socket.readline().split(b" ")
+    if b"?" in url:
+        (path, query) = url.split(b"?", 2)
+    else:
+        (path, query) = (url, b"")
+    while True:
+        header = socket.readline()
+        if header == b"":
+            return
+        if header == b"\r\n":
+            break
+
+    if version != b"HTTP/1.0\r\n" and version != b"HTTP/1.1\r\n":
+        err(socket, "505", "Version Not Supported")
+    elif method == b"GET":
+        if commandString in path:
+            extract_GET_command(path)
+        else:
+            err(socket, "404", "Not Found")
+    elif method == b"POST":
+        if commandString in path:
+            extract_POST_command(socket)
+        else:
+            err(socket, "404", "Not Found")
+    else:
+        err(socket, "501", "Not Implemented")
+
+
 def soc_request():
     """
     Receives and processes HTTP requests incoming on Port 80
@@ -201,14 +244,15 @@ def soc_request():
         # Write the HTTP request into a file so we can access it
         cl_file = cl.makefile('rwb', 0)
         # Extract the HTTP request line from the message
-        request_line = extract_request(cl_file)
+        # request_line = extract_request(cl_file)
+        handle(cl)
 
         if b'GET' in request_line and commandString in request_line:
             # Extract the command from the HTTP GET request line
             command = extract_GET_command(request_line)
         elif b'POST' in request_line:
             # extract the command from the POST request body
-            cl.send(b'HTTP/1.1 200 OK\r\n')
+            cl.send(b'HTTP/1.1 200 OK\r\n\r\n')
             command = extract_POST_command(cl_file)
 
         # Send the command to the Arduino
