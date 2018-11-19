@@ -15,28 +15,47 @@ Email: john-j-hritz@sbcglobal.net
 # minime 'main.py'
 # ESP8266 to Arduino Bot remote test
 
-import uos, machine
+import machine
 from machine import Pin, UART
 from utime import sleep_ms
-import socket
-import ussl
-import slimDNS.slimDNS as mdns
+
+try:
+    import uos as os
+except ImportError:
+    import os
+
+try:
+    import slimDNS as mdns
+except ImportError:
+    try:
+        import slimDNS.slimDNS as mdns
+    except ImportError:
+        import mdns
+
+try:
+    import usocket as _socket
+except ImportError:
+    import _socket
+
+try:
+    import ussl as ssl
+except ImportError:
+    import ssl
 
 print('minime NUBcore 20180912 16:27')
 
 BOT_MODE = False                                    # Set true if the ESP8266 is controlling a bot.
 commandString = b'cmd='                             # String that precedes a command in the HTTP request
-addr = socket.getaddrinfo('0.0.0.0', 443)[0][-1]    # requests the IP address of the ESP 8266
+addr = _socket.getaddrinfo('0.0.0.0', 443)[0][-1]    # requests the IP address of the ESP 8266
 print('listening on', addr)
 
-s = socket.socket()                                 # TCP Socket used to handle HTTP requests
+s = _socket.socket()                                 # TCP Socket used to handle HTTP requests
 
-# Bind the socket to an IP address and TCP port 80
-s.bind(addr)
+# wrap the socket in an ssl instance to provide TLS/SSL
+sec_s = ssl.wrap_socket(s, True, "server.key", "server.crt", ssl.CERT_OPTIONAL, None)
 
-# wrap the socket in a ussl instance to provide TLS/SSL
-sec_s = ussl.wrap_socket(s, True, "server.key", "server.crt", ussl.CERT_OPTIONAL, None)
-
+# Bind the socket to an IP address and TCP port 443
+sec_s.bind(addr)
 
 # Start listening on the port
 sec_s.listen(1)
