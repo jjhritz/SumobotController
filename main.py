@@ -44,22 +44,25 @@ except ImportError:
 
 print('minime NUBcore 20180912 16:27')
 
-BOT_MODE = False                                    # Set true if the ESP8266 is controlling a bot.
-commandString = b'cmd='                             # String that precedes a command in the HTTP request
-addr = _socket.getaddrinfo('0.0.0.0', 443)[0][-1]    # requests the IP address of the ESP 8266
+BOT_MODE = False                                        # Set true if the ESP8266 is controlling a bot.
+commandString = b'cmd='                                 # String that precedes a command in the HTTP request
+addr = _socket.getaddrinfo('0.0.0.0', 8443)[0][-1]      # requests the IP address of the ESP 8266
 print('listening on', addr)
 
-s = _socket.socket()                                 # TCP Socket used to handle HTTP requests
+s = _socket.socket()                                    # TCP Socket used to handle HTTP requests
+
+# Bind the socket to an IP address and TCP port 8443
+s.bind(addr)
 
 # wrap the socket in an ssl instance to provide TLS/SSL
+"""
+MicroPython 1.9.4 doesn't support certificates for SSL.  This is, quite frankly, a massive liability, but whatever.
 sec_s = ssl.wrap_socket(s, True, "server.key", "server.crt", ssl.CERT_OPTIONAL, None)
-
-# Bind the socket to an IP address and TCP port 443
-sec_s.bind(addr)
+"""
+s.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
 
 # Start listening on the port
-sec_s.listen(1)
-
+s.listen(5)
 
 led4 = Pin(4, Pin.OUT)
 led5 = Pin(5, Pin.OUT)
@@ -110,7 +113,7 @@ def callback(p):
     print("BOT MODE 9600bps")
     sleep_ms(1000)
     led4.value(0)
-    uos.dupterm(None, 1)    # kill REPL UART
+    os.dupterm(None, 1)    # kill REPL UART
     sleep_ms(1000)
     uart = UART(0, 9600)    # create bot UART
     uart.init(9600, bits=8, parity=None, stop=1)
@@ -177,11 +180,14 @@ def soc_request():
     """
     while True:
         # accept the incoming request
-        cl, clientaddr = sec_s.accept()
-        print('client connected from', clientaddr)
+        cl, clientaddr = s.accept()
+        print('client connected from ', clientaddr)
+        print('client socket ', cl)
+        sec_s = ssl.wrap_socket(cl, server_side=True)
+        print('Transferred to SSL ', sec_s)
 
         # Write the HTTP request into a file so we can access it
-        cl_file = cl.makefile('rwb', 0)
+        cl_file = sec_s.makefile('rwb', 0)
         # Extract the HTTP GET request line from the message
         request_line = extract_request(cl_file)
         # Extract the command from the HTTP GET request line
@@ -190,8 +196,9 @@ def soc_request():
         send_command(command)
 
         # Tell the client something so it will go away
-        cl.send(b"OK")
+        sec_s.send(b"OK")
 
         # Close the file and socket to save memory
         cl_file.close()
+        sec_s.close()
         cl.close()
